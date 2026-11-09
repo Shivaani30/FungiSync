@@ -1,0 +1,1 @@
+"""FungiSync backend application package."""
