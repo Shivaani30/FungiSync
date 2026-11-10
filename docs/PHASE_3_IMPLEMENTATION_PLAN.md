@@ -142,11 +142,13 @@ None exposed in this milestone. Internal schema/model support only.
 
 - Allocation generation, reservation writes, approval APIs, authentication, dispatch/delivery, and React allocation UI.
 
-## 5. Phase 3.2 — Deterministic allocation proposal engine
+## 5. Phase 3.2 — Advisory draft generation and persistence
+
+### Phase 3.2.1 — Deterministic advisory engine (completed)
 
 ### Scope
 
-Create a pure deterministic service that generates Draft allocation proposals from Phase 2 candidate discovery and current persisted records. A Draft has no reservation effect.
+Create a pure deterministic service that generates advisory Draft results from an order and current batch records. The engine evaluates controlled allocation-grade compatibility independently of Phase 2's free-text matching and does not use Phase 2 candidate discovery or scoring. An advisory Draft has no reservation effect.
 
 ### Prerequisites
 
@@ -155,7 +157,7 @@ Create a pure deterministic service that generates Draft allocation proposals fr
 
 ### Expected files/modules
 
-- `backend/app/allocation_service.py` or `backend/app/services/allocation_engine.py`
+- `backend/app/allocation_engine.py`
 - Allocation-specific domain types/schemas
 - Focused allocation-engine unit tests
 - Optional read-only internal query/repository helpers
@@ -166,7 +168,7 @@ No operational write API. A later read-only draft-generation endpoint may be des
 
 ### Business rules
 
-- Phase 2 matching is candidate discovery only; do not treat its score as a reservation or approval.
+- Phase 2 matching remains independent; do not use its score or free-text quality matching as an allocation input, reservation, or approval.
 - Enforce hard eligibility: normalized species, allocatable statuses, positive confirmed/available quantity, controlled quality matrix, known acceptable price, harvest/delivery/best-before conditions, and no aggregate overfulfillment.
 - Apply approved split rules: one batch may serve many orders; one order may use many batches; partial amounts are allowed; unfulfilled remainder is visible; overfulfillment is prohibited.
 - Rank deterministically using documented preferences and stable UUID tie-breakers. Location remains an exact-text soft preference only.
@@ -189,6 +191,15 @@ No operational write API. A later read-only draft-generation endpoint may be des
 ### Explicitly out of scope
 
 - Stock reservation, approval, cancellation, expiry, real route optimization, OR-Tools, LLMs, and frontend approval controls.
+
+### Phase 3.2.2 — Advisory draft persistence
+
+Persist a completed advisory engine result as one `DRAFT` proposal, version `1`, its proposed lines, and one `proposal_generated` event. Persistence owns a fresh SQLAlchemy session and one transaction, validates the current order and referenced batches, and records JSON-safe engine metadata. It does not rerun Phase 2 matching or replace the advisory engine's eligibility rules.
+
+- Draft lines are checked against the current confirmed quantity, but are not reservations and do not deduct or otherwise alter stock or order quantities.
+- The persistence transaction stores no temporary `batch_remaining_kg` value as authoritative availability.
+- A persisted draft can become stale after it is written. Locking, availability accounting, reservations, idempotency, expiry, submission, and approval remain Phase 3.3+ responsibilities.
+- A later submit/approve operation must revalidate authoritative current state under its own transaction and locking design.
 
 ## 6. Phase 3.3 — Quantity accounting and reservation service
 
