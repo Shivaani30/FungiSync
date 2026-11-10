@@ -1,0 +1,5 @@
+import type { ChangeEvent, ReactNode } from 'react'
+
+export function Toolbar({ children }: { children: ReactNode }) { return <div className="feature-toolbar">{children}</div> }
+export function SearchInput({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) { return <label className="search-control"><span className="sr-only">{label}</span><input type="search" value={value} onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(event.target.value)} placeholder={label} /></label> }
+export function FilterSelect({ label, value, options, onChange }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void }) { return <label className="filter-control"><span className="sr-only">{label}</span><select aria-label={label} value={value} onChange={event => onChange(event.target.value)}>{options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label> }

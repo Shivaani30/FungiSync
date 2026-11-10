@@ -1,0 +1,16 @@
+:root {
+  --forest: #315B42;
+  --deep-forest: #102B22;
+  --sage: #A9C5A0;
+  --paper: #F6F3E9;
+  --cream: #E7DDC9;
+  --amber: #E6B65C;
+  --ink: #192720;
+  --muted: #68776F;
+  --line: #DCE2D7;
+  --danger: #A93934;
+  --radius-card: 13px;
+  --radius-control: 9px;
+  --shadow-card: 0 3px 15px rgb(28 43 37 / 3%);
+  --transition: 180ms ease;
+}

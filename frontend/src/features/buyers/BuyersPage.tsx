@@ -1,0 +1,23 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { PageIntro } from '../../components/shell/PageIntro'
+import { ConfirmDialog, Modal } from '../../components/ui/Modal'
+import { DataTable } from '../../components/ui/DataTable'
+import { EmptyState, ErrorState, LoadingState } from '../../components/ui/States'
+import { Toolbar, FilterSelect, SearchInput } from '../../components/ui/Toolbar'
+import { api, type Buyer } from '../../lib/api'
+import { BuyerForm } from './BuyerForm'
+
+type Editor = 'create' | Buyer | null
+const message = (error: unknown) => error instanceof Error ? error.message : 'Request failed.'
+
+export function BuyersPage() {
+  const [buyers, setBuyers] = useState<Buyer[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [notice, setNotice] = useState('')
+  const [search, setSearch] = useState(''); const [location, setLocation] = useState(''); const [editor, setEditor] = useState<Editor>(null); const [details, setDetails] = useState<Buyer | null>(null); const [deleteTarget, setDeleteTarget] = useState<Buyer | null>(null); const [saving, setSaving] = useState(false)
+  const reload = useCallback(async () => { setLoading(true); try { setBuyers(await api.buyers.list()); setError('') } catch (reason) { setError(message(reason)) } finally { setLoading(false) } }, [])
+  useEffect(() => { void reload() }, [reload])
+  const locations = useMemo(() => [...new Set(buyers.map(buyer => buyer.location))].sort(), [buyers])
+  const visible = buyers.filter(buyer => (!location || buyer.location === location) && `${buyer.name} ${buyer.location} ${buyer.contact}`.toLowerCase().includes(search.toLowerCase()))
+  const save = async (payload: Pick<Buyer, 'name' | 'location' | 'contact'>) => { setSaving(true); try { if (editor !== 'create' && editor) await api.buyers.update(editor.id, payload); else await api.buyers.create(payload); setEditor(null); setNotice('Buyer saved.'); await reload() } catch (reason) { setError(message(reason)) } finally { setSaving(false) } }
+  const remove = async () => { if (!deleteTarget) return; setSaving(true); try { await api.buyers.remove(deleteTarget.id); setDeleteTarget(null); setNotice('Buyer deleted.'); await reload() } catch (reason) { setError(message(reason)); setDeleteTarget(null) } finally { setSaving(false) } }
+  return <><PageIntro eyebrow="Commercial demand" title="Buyers" actions={<button className="primary" type="button" onClick={() => { setEditor('create'); setNotice('') }}>Add buyer</button>}><p>Maintain buyer contact and location records stored in the FungiSync API.</p></PageIntro>{error && <ErrorState message={error} />}{notice && <p className="feature-notice">{notice}</p>}<section className="panel"><Toolbar><SearchInput label="Search buyers" value={search} onChange={setSearch} /><FilterSelect label="Filter by location" value={location} onChange={setLocation} options={[{ value: '', label: 'All locations' }, ...locations.map(value => ({ value, label: value }))]} /></Toolbar>{loading ? <LoadingState /> : !buyers.length ? <EmptyState message="No buyers have been registered yet." /> : !visible.length ? <EmptyState message="No buyers match the current search and location filter." /> : <DataTable headers={['Buyer', 'Location', 'Contact', 'Created', 'Actions']}>{visible.map(buyer => <tr key={buyer.id}><td><strong>{buyer.name}</strong></td><td>{buyer.location}</td><td>{buyer.contact}</td><td>{new Date(buyer.created_at).toLocaleDateString()}</td><td className="row-actions"><button onClick={() => setDetails(buyer)}>View</button><button onClick={() => setEditor(buyer)}>Edit</button><button className="text-danger" onClick={() => setDeleteTarget(buyer)}>Delete</button></td></tr>)}</DataTable>}</section>{editor && <Modal title={editor === 'create' ? 'Add buyer' : 'Edit buyer'} onClose={() => setEditor(null)}><BuyerForm buyer={editor === 'create' ? undefined : editor} saving={saving} onCancel={() => setEditor(null)} onSave={save} /></Modal>}{details && <Modal title="Buyer details" onClose={() => setDetails(null)}><dl className="details-grid"><div><dt>Buyer ID</dt><dd>{details.id}</dd></div><div><dt>Name</dt><dd>{details.name}</dd></div><div><dt>Location</dt><dd>{details.location}</dd></div><div><dt>Contact</dt><dd>{details.contact}</dd></div><div><dt>Created</dt><dd>{new Date(details.created_at).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(details.updated_at).toLocaleString()}</dd></div></dl></Modal>}{deleteTarget && <ConfirmDialog title="Delete buyer" message={`Delete ${deleteTarget.name}? Buyers with orders cannot be deleted by the API.`} confirmLabel="Delete buyer" busy={saving} onCancel={() => setDeleteTarget(null)} onConfirm={() => void remove()} />}</>
+}

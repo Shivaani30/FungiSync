@@ -1,30 +1,28 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { api, Batch, Buyer, Grower, MatchCandidate, MatchResults, Order, matching } from './lib/api'
+import { AppShell } from './components/shell/AppShell'
+import type { NavigationItem } from './components/shell/Sidebar'
+import { OverviewDashboard } from './features/overview/OverviewDashboard'
+import { GrowersPage } from './features/growers/GrowersPage'
+import { BatchesPage } from './features/batches/BatchesPage'
+import { BuyersPage } from './features/buyers/BuyersPage'
+import { OrdersPage } from './features/orders/OrdersPage'
+import { MatchingWorkspace } from './features/matching/MatchingWorkspace'
 
 type Page = 'dashboard' | 'growers' | 'batches' | 'buyers' | 'orders' | 'matching'
-type Item = Grower | Buyer | Batch | Order
-const pages: Page[] = ['dashboard', 'growers', 'batches', 'buyers', 'orders', 'matching']
+const pages = [
+  { id: 'dashboard', label: 'Overview', icon: 'overview' },
+  { id: 'growers', label: 'Growers', icon: 'growers' },
+  { id: 'batches', label: 'Harvest batches', icon: 'batches' },
+  { id: 'buyers', label: 'Buyers', icon: 'buyers' },
+  { id: 'orders', label: 'Orders', icon: 'orders' },
+  { id: 'matching', label: 'Matching', icon: 'matching' },
+] satisfies NavigationItem<Page>[]
 const label = (value: string) => value.replace('_', ' ').replace(/^./, x => x.toUpperCase())
 
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard')
-  return <div className="min-h-screen bg-slate-50 md:flex">
-    <aside className="w-full bg-white p-5 shadow-sm md:min-h-screen md:w-60">
-      <h1 className="text-2xl font-bold text-emerald-700">FungiSync</h1><p className="mb-6 text-sm text-slate-500">Coordinator dashboard</p>
-      <nav className="flex gap-2 overflow-auto md:block">{pages.map(x => <button key={x} onClick={() => setPage(x)} className={page === x ? 'nav active' : 'nav'}>{x === 'dashboard' ? 'Overview' : label(x)}</button>)}</nav>
-    </aside>
-    <main className="flex-1 p-5 md:p-8">{page === 'dashboard' ? <Dashboard /> : page === 'matching' ? <Matching /> : <Records kind={page} />}</main>
-  </div>
-}
-function Dashboard() {
-  const [data, setData] = useState<[Grower[], Batch[], Buyer[], Order[]] | null>(null); const [error, setError] = useState('')
-  useEffect(() => { Promise.all([api.growers.list(), api.batches.list(), api.buyers.list(), api.orders.list()]).then(setData).catch(e => setError(e.message)) }, [])
-  if (error) return <Notice type="error" text={error} />; if (!data) return <Loading />
-  const [growers, batches, buyers, orders] = data
-  const confirmed = batches.filter(x => x.status === 'confirmed' || x.status === 'harvested').reduce((n, x) => n + Number(x.confirmed_kg || 0), 0)
-  const recent = [...growers.map(x => ({ name:x.name, type:'Grower', date:x.created_at })), ...orders.map(x => ({ name:x.species, type:'Order', date:x.created_at }))].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 5)
-  const cards = [['Growers', growers.length], ['Harvest batches', batches.length], ['Buyers', buyers.length], ['Orders', orders.length], ['Confirmed harvest', confirmed.toFixed(1) + ' kg'], ['Pending orders', orders.filter(x => x.status === 'pending').length]]
-  return <><h2 className="title">Distribution overview</h2><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{cards.map(([name,value]) => <div className="card" key={String(name)}><p className="text-sm text-slate-500">{name}</p><p className="mt-2 text-3xl font-semibold">{value}</p></div>)}</div><section className="card mt-6"><h3 className="font-semibold">Recent records</h3>{recent.length ? recent.map((x,i) => <div className="flex justify-between border-t py-3 text-sm" key={i}><span>{x.name} <small className="text-slate-500">{x.type}</small></span><span className="text-slate-500">{new Date(x.date).toLocaleDateString()}</span></div>) : <p className="mt-3 text-slate-500">No records yet.</p>}</section></>
+  return <AppShell items={pages} active={page} onNavigate={setPage}>{page === 'dashboard' ? <OverviewDashboard /> : page === 'growers' ? <GrowersPage /> : page === 'batches' ? <BatchesPage /> : page === 'buyers' ? <BuyersPage /> : page === 'orders' ? <OrdersPage /> : <MatchingWorkspace />}</AppShell>
 }
 function Matching() {
   const [orders,setOrders] = useState<Order[]>([]); const [buyers,setBuyers] = useState<Buyer[]>([])
@@ -46,11 +44,11 @@ function CandidateCard({candidate,batch,grower,expanded,onToggle}:{candidate:Mat
   return <article className="card"><div className="flex flex-col justify-between gap-3 sm:flex-row"><div><div className="flex items-center gap-2"><h3 className="font-semibold">{grower?.name || 'Unknown grower'} · {batch?.species || 'Unknown species'}</h3><span className={candidate.eligible?'rounded bg-emerald-100 px-2 py-1 text-xs text-emerald-700':'rounded bg-rose-100 px-2 py-1 text-xs text-rose-700'}>{candidate.eligible?'Eligible':'Excluded'}</span></div><p className="mt-1 text-sm text-slate-500">Confirmed {candidate.available_quantity_kg || 'unknown'} kg · Can supply {candidate.quantity_that_could_be_supplied_kg} kg · Remaining {candidate.remaining_quantity_kg} kg</p></div><div className="text-left sm:text-right"><p className="text-2xl font-bold text-emerald-700">{candidate.compatibility_score}%</p><p className="text-xs text-slate-500">Data completeness {candidate.data_completeness_percentage}%</p></div></div><div className="mt-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4"><span>Asking price: {batch?.asking_price_per_kg || 'Unknown'}</span><span>Harvest: {batch?.harvest_date || 'Unknown'}</span><span>Best before: {batch?.best_before_date || 'Unknown'}</span><span>Quality: {batch?.quality_grade || 'Unknown'}</span></div><button className="mt-4 text-sm font-semibold text-emerald-700" onClick={onToggle}>{expanded?'Hide score breakdown':'View score breakdown'}</button>{expanded && <div className="mt-4 border-t pt-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{criteria.map(name => {const criterion=candidate.criteria[name];return <div className={criterion?.status==='unknown'?'rounded bg-amber-50 p-3':'rounded bg-slate-50 p-3'} key={name}><b>{label(name)}</b><p>{criterion?.status === 'unknown' ? 'Unknown' : (criterion?.points || '0')+' / '+(criterion?.weight || 0)}</p><small className="text-slate-500">{criterion?.reason}</small></div>})}</div><Explanation title="Why it matches" values={candidate.positive_reasons}/><Explanation title="Unknown information" values={candidate.unknown_criteria}/><Explanation title="Warnings" values={candidate.warnings}/><Explanation title="Exclusion reasons" values={candidate.exclusion_reasons}/></div>}</article>
 }
 function Explanation({title,values}:{title:string;values:string[]}){return values.length?<div className="mt-4"><h4 className="text-sm font-semibold">{title}</h4><ul className="list-disc pl-5 text-sm text-slate-600">{values.map(value=><li key={value}>{value}</li>)}</ul></div>:null}
-function Records({ kind }: { kind: Exclude<Page,'dashboard'> }) {
-  const resource = (api as any)[kind]; const [items,setItems] = useState<Item[]>([]); const [parents,setParents] = useState<any[]>([]); const [editing,setEditing] = useState<any>(null); const [detail,setDetail] = useState<any>(null); const [loading,setLoading] = useState(true); const [saving,setSaving] = useState(false); const [error,setError] = useState(''); const [success,setSuccess] = useState('')
-  const fields = kind === 'growers' ? ['name','phone','location'] : kind === 'buyers' ? ['name','location','contact'] : kind === 'batches' ? ['grower_id','species','expected_kg','confirmed_kg','harvest_date','status'] : ['buyer_id','species','quantity_kg','price_limit','delivery_date','status']
-  const statuses = kind === 'batches' ? ['expected','confirmed','harvested','cancelled'] : ['pending','confirmed','fulfilled','cancelled']
-  const load = () => { setLoading(true); Promise.all([resource.list(), kind === 'batches' ? api.growers.list() : kind === 'orders' ? api.buyers.list() : Promise.resolve([])]).then(([rows, refs]) => { setItems(rows); setParents(refs); setError('') }).catch(e => setError(e.message)).finally(() => setLoading(false)) }
+function Records({ kind }: { kind: 'buyers' | 'orders' }) {
+  const resource = (api as any)[kind]; const [items,setItems] = useState<any[]>([]); const [parents,setParents] = useState<any[]>([]); const [editing,setEditing] = useState<any>(null); const [detail,setDetail] = useState<any>(null); const [loading,setLoading] = useState(true); const [saving,setSaving] = useState(false); const [error,setError] = useState(''); const [success,setSuccess] = useState('')
+  const fields = kind === 'buyers' ? ['name','location','contact'] : ['buyer_id','species','quantity_kg','price_limit','delivery_date','status']
+  const statuses = ['pending','confirmed','fulfilled','cancelled']
+  const load = () => { setLoading(true); Promise.all([resource.list(), kind === 'orders' ? api.buyers.list() : Promise.resolve([])]).then(([rows, refs]) => { setItems(rows); setParents(refs); setError('') }).catch(e => setError(e.message)).finally(() => setLoading(false)) }
   useEffect(load,[kind])
   const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if(saving) return; const values:any = Object.fromEntries(new FormData(event.currentTarget)); if(!values.confirmed_kg) delete values.confirmed_kg; setSaving(true); setError(''); try { editing?.id ? await resource.update(editing.id,values) : await resource.create(values); setEditing(null); setSuccess('Saved successfully.'); load() } catch(e:any) { setError(e.message) } finally { setSaving(false) } }
   const remove = async (id:string) => { if(!confirm('Delete this record? This cannot be undone.')) return; try { await resource.remove(id); setSuccess('Record deleted.'); load() } catch(e:any) { setError(e.message) } }
