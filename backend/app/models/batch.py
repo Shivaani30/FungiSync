@@ -9,8 +9,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.mixins import IdentifierTimestampMixin
+from app.models.quality import AllocationQualityGrade
 
 if TYPE_CHECKING:
+    from app.models.allocation import AllocationLine
     from app.models.grower import Grower
 
 
@@ -54,6 +56,16 @@ class Batch(IdentifierTimestampMixin, Base):
     harvest_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     asking_price_per_kg: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     quality_grade: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    allocation_quality_grade: Mapped[AllocationQualityGrade | None] = mapped_column(
+        Enum(
+            AllocationQualityGrade,
+            name="allocation_quality_grade",
+            native_enum=True,
+            values_callable=lambda grades: [grade.value for grade in grades],
+        ),
+        nullable=True,
+        index=True,
+    )
     best_before_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[BatchStatus] = mapped_column(
         Enum(
@@ -69,3 +81,7 @@ class Batch(IdentifierTimestampMixin, Base):
     )
 
     grower: Mapped["Grower"] = relationship(back_populates="batches")
+    allocation_lines: Mapped[list["AllocationLine"]] = relationship(
+        back_populates="batch",
+        passive_deletes="all",
+    )

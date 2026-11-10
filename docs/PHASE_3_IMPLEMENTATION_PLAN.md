@@ -89,13 +89,24 @@ Design and migrate the persisted allocation proposal, version, line, and append-
 - New Alembic revision(s) under `backend/alembic/versions/`
 - Database schema/model tests under `backend/tests/`
 
-### Proposed database changes
+### Implemented database changes
 
-- `allocation_proposals`: UUID, state, immutable version/revision relationship, timestamps, reservation expiry, ruleset version, idempotency key, and nullable future actor references.
-- `allocation_lines`: UUID, proposal/version ID, batch ID, order ID, quantity, lifecycle timestamps/state, and validation snapshot. Index active lines by batch and order.
-- `allocation_events`: append-only UUID events with proposal/line/batch/order links, state/quantity before-after snapshots, reason data, ruleset snapshot, actor placeholder, correlation/idempotency ID, and timestamp.
+- `allocation_proposals`: UUID, status, creation/update timestamps, and optional ruleset version.
+- `allocation_proposal_versions`: UUID, proposal foreign key, positive version number, timestamps, and unique `(proposal_id, version_number)` history identity.
+- `allocation_lines`: UUID, proposal-version, batch, and order foreign keys, positive `NUMERIC(12,3)` proposed quantity, timestamps, and lookup indexes. The model supports split/partial line representation but performs no allocation, reservation, or lifecycle accounting.
+- `allocation_events`: UUID, proposal reference, composite proposal-version/proposal reference, nonblank event type, optional JSON details, timestamps, restrictive foreign keys, and lookup indexes.
 - Controlled allocation-grade enum/field(s), separate from raw `batches.quality_grade` and `orders.required_quality_grade`. Preserve the raw fields byte-for-byte for Phase 2. Existing rows start `Unknown/unmapped` unless an explicit manual confirmation has recorded a controlled-grade mapping; never bulk-classify ambiguous labels such as `Grade A` or `Export Quality`.
-- Foreign keys to batches/orders and restrictive deletion behavior; indexes for active reservation/allocation aggregation and expiry scans.
+- Restrictive foreign keys and indexes for current proposal/version, line, event, status, batch, and order lookups.
+
+### Deferred metadata and lifecycle fields
+
+- Reservation-expiry timestamps and reservation state.
+- Idempotency keys and request-correlation metadata.
+- Trusted actor/approver references.
+- Allocation-line lifecycle fields, validation snapshots, and event links to individual lines/batches/orders.
+- Rich event before/after quantity snapshots, reasons, ruleset snapshots, and audit retention metadata.
+
+These belong to later reservation, authorization, approval, and audit-workflow milestones; they are not represented by the Phase 3.1 schema.
 
 ### API changes
 
@@ -105,14 +116,15 @@ None exposed in this milestone. Internal schema/model support only.
 
 - Existing free-text quality remains the Phase 2 source of truth for matching.
 - Mapping failure, missing grade, ambiguous text, or unreviewed legacy text must be represented explicitly as `Unknown/unmapped`, not guessed. Mapping is manual-confirmation-only.
-- Event records are append-only; approved proposal history cannot be deleted.
+- The schema provides event-history storage and version identities; append-only enforcement and approved-history protection require later service/security controls.
+- **Phase 3.1 limitation:** the data model records append-only history but does not itself prevent privileged direct SQL/ORM updates or deletes of versions/events. Unique version numbering is not immutability enforcement. Before operational workflows are enabled, a later service/security phase must restrict mutation paths, enforce authorization, and decide whether database privileges or triggers are required for immutable event/history protection.
 
 ### Test scenarios
 
 - Upgrade/downgrade migration on an empty and populated test database.
 - Foreign-key and deletion restrictions.
 - Numeric precision/scale handling for `NUMERIC(12,3)` quantities.
-- Event append-only behavior and active-line indexes.
+- Event-history storage, composite proposal/version referential integrity, and line lookup indexes; append-only enforcement remains deferred.
 - Legacy grade preservation and unmapped-grade handling.
 - No automatic backfill for `Grade A`, `Export Quality`, similarly ambiguous values, or unreviewed rows.
 - Phase 1 CRUD and Phase 2 matching regression tests over populated legacy-grade data.
@@ -124,7 +136,7 @@ None exposed in this milestone. Internal schema/model support only.
 - Existing Phase 1 CRUD/schema tests and Phase 2 matching tests, including exact normalized free-text quality behavior, remain unchanged and passing against populated legacy data.
 - No automatic legacy-grade backfill classifies ambiguous or unreviewed values; they remain `Unknown/unmapped` until manually confirmed.
 - Phase 3.1 exposes no reservation behavior and no operational allocation API; it is limited to schema, migration, and regression-tested model support.
-- New models can represent proposal history, lines, reservations, committed allocations, and audit evidence without mutable history loss.
+- New models can represent proposal history identities, proposed lines, controlled grades, and event-history records without changing Phase 1/2 records. Reservation, commitment, and immutable-history enforcement remain deferred.
 
 ### Explicitly out of scope
 

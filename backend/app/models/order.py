@@ -9,8 +9,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.mixins import IdentifierTimestampMixin
+from app.models.quality import AllocationQualityGrade
 
 if TYPE_CHECKING:
+    from app.models.allocation import AllocationLine
     from app.models.buyer import Buyer
 
 
@@ -42,6 +44,16 @@ class Order(IdentifierTimestampMixin, Base):
     price_limit: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     delivery_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     required_quality_grade: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    allocation_required_quality_grade: Mapped[AllocationQualityGrade | None] = mapped_column(
+        Enum(
+            AllocationQualityGrade,
+            name="allocation_quality_grade",
+            native_enum=True,
+            values_callable=lambda grades: [grade.value for grade in grades],
+        ),
+        nullable=True,
+        index=True,
+    )
     status: Mapped[OrderStatus] = mapped_column(
         Enum(
             OrderStatus,
@@ -56,3 +68,7 @@ class Order(IdentifierTimestampMixin, Base):
     )
 
     buyer: Mapped["Buyer"] = relationship(back_populates="orders")
+    allocation_lines: Mapped[list["AllocationLine"]] = relationship(
+        back_populates="order",
+        passive_deletes="all",
+    )
