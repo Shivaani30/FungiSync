@@ -3,9 +3,13 @@
 from app.models.allocation import (
     AllocationEvent,
     AllocationLine,
+    AllocationOperationIdempotency,
+    AllocationOperationIdempotencyState,
     AllocationProposal,
     AllocationProposalStatus,
     AllocationProposalVersion,
+    AllocationReservation,
+    AllocationReservationStatus,
 )
 from app.models.batch import Batch, BatchStatus
 from app.models.buyer import Buyer
@@ -16,9 +20,13 @@ from app.models.quality import AllocationQualityGrade
 __all__ = [
     "AllocationEvent",
     "AllocationLine",
+    "AllocationOperationIdempotency",
+    "AllocationOperationIdempotencyState",
     "AllocationProposal",
     "AllocationProposalStatus",
     "AllocationProposalVersion",
+    "AllocationReservation",
+    "AllocationReservationStatus",
     "AllocationQualityGrade",
     "Batch",
     "BatchStatus",

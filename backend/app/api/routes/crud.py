@@ -1,11 +1,11 @@
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.services import CRUDService
 
-def router_for(prefix: str, tag: str, service: CRUDService, create_schema, update_schema, out_schema, filters: tuple[str, ...] = (), parent_service: CRUDService | None = None, parent_field: str | None = None) -> APIRouter:
+def router_for(prefix: str, tag: str, service: CRUDService, create_schema, update_schema, out_schema, filters: tuple[str, ...] = (), parent_service: CRUDService | None = None, parent_field: str | None = None, update_handler: Callable[[Session, UUID, dict], object] | None = None) -> APIRouter:
     router = APIRouter(prefix=prefix, tags=[tag])
     @router.post("", response_model=out_schema, status_code=201)
     def create(payload: create_schema, db: Session = Depends(get_db)):
@@ -22,6 +22,8 @@ def router_for(prefix: str, tag: str, service: CRUDService, create_schema, updat
     def update(item_id: UUID, payload: update_schema, db: Session = Depends(get_db)):
         values = payload.model_dump(exclude_unset=True)
         if parent_service and parent_field and parent_field in values: parent_service.get(db, values[parent_field])
+        if update_handler is not None:
+            return update_handler(db, item_id, values)
         return service.update(db, item_id, values)
     @router.delete("/{item_id}", status_code=204)
     def delete(item_id: UUID, db: Session = Depends(get_db)):

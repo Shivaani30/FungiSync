@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from typing import Annotated
 
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     database_url: str
     test_database_url: str | None = None
     backend_cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
+    reservation_pending_ttl_seconds: Annotated[int, Field(gt=0)]
 
     @field_validator("backend_cors_origins", mode="before")
     @classmethod

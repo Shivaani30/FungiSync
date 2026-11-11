@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -9,9 +9,13 @@ from sqlalchemy.orm import Session
 from app.models import (
     AllocationEvent,
     AllocationLine,
+    AllocationOperationIdempotency,
+    AllocationOperationIdempotencyState,
     AllocationProposal,
     AllocationProposalVersion,
     AllocationQualityGrade,
+    AllocationReservation,
+    AllocationReservationStatus,
     Batch,
     Buyer,
     Grower,
@@ -154,4 +158,235 @@ def test_allocation_event_version_must_belong_to_its_proposal(test_engine) -> No
             )
         )
         with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def _proposal_version_line(session: Session) -> tuple[AllocationProposal, AllocationProposalVersion, AllocationLine]:
+    batch, order = _batch_and_order(session)
+    proposal = AllocationProposal()
+    session.add(proposal)
+    session.flush()
+    version = AllocationProposalVersion(proposal_id=proposal.id, version_number=1)
+    session.add(version)
+    session.flush()
+    line = AllocationLine(
+        proposal_version_id=version.id,
+        batch_id=batch.id,
+        order_id=order.id,
+        proposed_quantity_kg=Decimal("1.234"),
+    )
+    session.add(line)
+    session.flush()
+    return proposal, version, line
+
+
+def test_reservation_relationships_lifecycle_metadata_and_nullable_event_link(test_engine) -> None:
+    with Session(test_engine) as session:
+        proposal, version, line = _proposal_version_line(session)
+        reservation = AllocationReservation(
+            allocation_line_id=line.id,
+            proposal_id=proposal.id,
+            proposal_version_id=version.id,
+            reserved_quantity_kg=Decimal("1.234"),
+            status=AllocationReservationStatus.PENDING,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
+        )
+        unlinked_event = AllocationEvent(
+            proposal_id=proposal.id,
+            proposal_version_id=version.id,
+            event_type="proposal_generated",
+        )
+        linked_event = AllocationEvent(
+            proposal_id=proposal.id,
+            proposal_version_id=version.id,
+            reservation=reservation,
+            event_type="reservation_created",
+        )
+        session.add_all([reservation, unlinked_event, linked_event])
+        session.commit()
+
+        assert proposal.submitted_at is None
+        assert proposal.approved_at is None
+        assert proposal.rejected_at is None
+        assert proposal.cancelled_at is None
+        assert proposal.expires_at is None
+        assert proposal.terminal_reason_code is None
+        assert proposal.terminal_reason is None
+        assert line.reservation is not None and line.reservation.id == reservation.id
+        assert reservation.proposal_version.proposal_id == proposal.id
+        assert linked_event.reservation_id == reservation.id
+        assert unlinked_event.reservation_id is None
+        assert reservation.events == [linked_event]
+
+
+@pytest.mark.parametrize("quantity", [Decimal("0.000"), Decimal("-0.001")])
+def test_reservation_quantity_must_be_positive(test_engine, quantity: Decimal) -> None:
+    with Session(test_engine) as session:
+        proposal, version, line = _proposal_version_line(session)
+        session.add(
+            AllocationReservation(
+                allocation_line_id=line.id,
+                proposal_id=proposal.id,
+                proposal_version_id=version.id,
+                reserved_quantity_kg=quantity,
+                status=AllocationReservationStatus.PENDING,
+                expires_at=datetime.now(timezone.utc),
+            )
+        )
+        with pytest.raises((DataError, IntegrityError)):
+            session.commit()
+
+
+def test_reservation_numeric_precision_and_unique_line_are_enforced(test_engine) -> None:
+    with Session(test_engine) as session:
+        proposal, version, line = _proposal_version_line(session)
+        reservation = AllocationReservation(
+            allocation_line_id=line.id,
+            proposal_id=proposal.id,
+            proposal_version_id=version.id,
+            reserved_quantity_kg=line.proposed_quantity_kg,
+            status=AllocationReservationStatus.PENDING,
+            expires_at=datetime.now(timezone.utc),
+        )
+        session.add(reservation)
+        session.commit()
+        assert session.get(AllocationReservation, reservation.id).reserved_quantity_kg == Decimal("1.234")
+
+    with Session(test_engine) as session:
+        proposal, version, line = _proposal_version_line(session)
+        first = AllocationReservation(
+            allocation_line_id=line.id,
+            proposal_id=proposal.id,
+            proposal_version_id=version.id,
+            reserved_quantity_kg=line.proposed_quantity_kg,
+            status=AllocationReservationStatus.PENDING,
+            expires_at=datetime.now(timezone.utc),
+        )
+        second = AllocationReservation(
+            allocation_line_id=line.id,
+            proposal_id=proposal.id,
+            proposal_version_id=version.id,
+            reserved_quantity_kg=line.proposed_quantity_kg,
+            status=AllocationReservationStatus.PENDING,
+            expires_at=datetime.now(timezone.utc),
+        )
+        session.add_all([first, second])
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+    with Session(test_engine) as session:
+        proposal, version, line = _proposal_version_line(session)
+        session.add(
+            AllocationReservation(
+                allocation_line_id=line.id,
+                proposal_id=proposal.id,
+                proposal_version_id=version.id,
+                reserved_quantity_kg=Decimal("1000000000.000"),
+                status=AllocationReservationStatus.PENDING,
+                expires_at=datetime.now(timezone.utc),
+            )
+        )
+        with pytest.raises((DataError, IntegrityError)):
+            session.commit()
+
+
+def test_reservation_status_and_cross_proposal_constraints_are_enforced(test_engine) -> None:
+    with Session(test_engine) as session:
+        proposal, version, line = _proposal_version_line(session)
+        session.add(
+            AllocationReservation(
+                allocation_line_id=line.id,
+                proposal_id=proposal.id,
+                proposal_version_id=version.id,
+                reserved_quantity_kg=Decimal("1.000"),
+                status="UNKNOWN",
+                expires_at=datetime.now(timezone.utc),
+            )
+        )
+        with pytest.raises((DataError, IntegrityError)):
+            session.commit()
+
+    with Session(test_engine) as session:
+        first, _, line = _proposal_version_line(session)
+        second = AllocationProposal()
+        session.add(second)
+        session.flush()
+        second_version = AllocationProposalVersion(proposal_id=second.id, version_number=1)
+        session.add(second_version)
+        session.flush()
+        session.add(
+            AllocationReservation(
+                allocation_line_id=line.id,
+                proposal_id=second.id,
+                proposal_version_id=second_version.id,
+            reserved_quantity_kg=line.proposed_quantity_kg,
+                status=AllocationReservationStatus.PENDING,
+                expires_at=datetime.now(timezone.utc),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+    with Session(test_engine) as session:
+        proposal, version, line = _proposal_version_line(session)
+        session.add(
+            AllocationReservation(
+                allocation_line_id=line.id,
+                proposal_id=proposal.id,
+                proposal_version_id=version.id,
+            reserved_quantity_kg=line.proposed_quantity_kg,
+                status=AllocationReservationStatus.PENDING,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_idempotency_constraints_and_result_event_relationship(test_engine) -> None:
+    with Session(test_engine) as session:
+        proposal, version, _ = _proposal_version_line(session)
+        event = AllocationEvent(
+            proposal_id=proposal.id,
+            proposal_version_id=version.id,
+            event_type="proposal_submitted",
+        )
+        operation = AllocationOperationIdempotency(
+            operation_type="submit",
+            idempotency_key="submit-001",
+            proposal_id=proposal.id,
+            proposal_version_id=version.id,
+            request_fingerprint="a" * 64,
+            state=AllocationOperationIdempotencyState.COMPLETED,
+            result_event=event,
+            result_json={"result": "stored"},
+        )
+        session.add_all([event, operation])
+        session.commit()
+        assert operation.result_event_id == event.id
+        assert operation.proposal_version is not None and operation.proposal_version.id == version.id
+
+    with Session(test_engine) as session:
+        proposal, _, _ = _proposal_version_line(session)
+        session.add_all([
+            AllocationOperationIdempotency(
+                operation_type="submit", idempotency_key="same", proposal_id=proposal.id,
+                request_fingerprint="a" * 64, state=AllocationOperationIdempotencyState.COMPLETED,
+            ),
+            AllocationOperationIdempotency(
+                operation_type="submit", idempotency_key="same", proposal_id=proposal.id,
+                request_fingerprint="b" * 64, state=AllocationOperationIdempotencyState.COMPLETED,
+            ),
+        ])
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+    with Session(test_engine) as session:
+        proposal, _, _ = _proposal_version_line(session)
+        session.add(
+            AllocationOperationIdempotency(
+                operation_type="submit", idempotency_key="invalid-state", proposal_id=proposal.id,
+                request_fingerprint="a" * 64, state="UNKNOWN",
+            )
+        )
+        with pytest.raises((DataError, IntegrityError)):
             session.commit()
