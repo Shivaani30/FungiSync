@@ -28,6 +28,15 @@ if TYPE_CHECKING:
     from app.models.order import Order
 
 
+_REASON_WHITESPACE_SQL = (
+    r"U&'\0009\000A\000B\000C\000D\001C\001D\001E\001F\0020"
+    r"\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006"
+    r"\2007\2008\2009\200A\2028\2029\202F\205F\3000'"
+)
+# Match the f8a3c9d2e641 migration and reservation_service._terminal_reason.
+_NONBLANK_REASON_SQL = f"length(btrim(terminal_reason_code, {_REASON_WHITESPACE_SQL})) > 0"
+
+
 class AllocationProposalStatus(str, enum.Enum):
     """Persisted lifecycle labels only; Phase 3.1 implements no lifecycle behavior."""
 
@@ -59,6 +68,27 @@ class AllocationOperationIdempotencyState(str, enum.Enum):
 
 class AllocationProposal(IdentifierTimestampMixin, Base):
     __tablename__ = "allocation_proposals"
+    __table_args__ = (
+        CheckConstraint(
+            "status <> 'PENDING_APPROVAL' OR (submitted_at IS NOT NULL AND expires_at IS NOT NULL)",
+            name="ck_allocation_proposals_pending_timestamps",
+        ),
+        CheckConstraint(
+            "status <> 'REJECTED' OR (rejected_at IS NOT NULL AND terminal_reason_code IS NOT NULL "
+            f"AND {_NONBLANK_REASON_SQL})",
+            name="ck_allocation_proposals_rejected_metadata",
+        ),
+        CheckConstraint(
+            "status <> 'CANCELLED' OR (cancelled_at IS NOT NULL AND terminal_reason_code IS NOT NULL "
+            f"AND {_NONBLANK_REASON_SQL})",
+            name="ck_allocation_proposals_cancelled_metadata",
+        ),
+        CheckConstraint(
+            "status <> 'RELEASED' OR (terminal_reason_code IS NOT NULL "
+            f"AND {_NONBLANK_REASON_SQL})",
+            name="ck_allocation_proposals_released_reason",
+        ),
+    )
 
     status: Mapped[AllocationProposalStatus] = mapped_column(
         Enum(AllocationProposalStatus, name="allocation_proposal_status", native_enum=True,
@@ -152,6 +182,11 @@ class AllocationReservation(IdentifierTimestampMixin, Base):
         CheckConstraint(
             "status <> 'RELEASED' OR (committed_at IS NOT NULL AND terminal_at IS NOT NULL)",
             name="ck_allocation_reservations_released_lifecycle",
+        ),
+        CheckConstraint(
+            "status NOT IN ('REJECTED', 'CANCELLED') OR (terminal_reason_code IS NOT NULL "
+            f"AND {_NONBLANK_REASON_SQL})",
+            name="ck_allocation_reservations_rejected_cancelled_reason",
         ),
         ForeignKeyConstraint(
             ["proposal_version_id", "proposal_id"],

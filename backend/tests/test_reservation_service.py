@@ -102,6 +102,9 @@ def _supporting_reservation(
         expires_at=now + timedelta(days=1) if status is AllocationReservationStatus.PENDING else None,
         committed_at=now if status in {AllocationReservationStatus.COMMITTED, AllocationReservationStatus.RELEASED} else None,
         terminal_at=now if status in {AllocationReservationStatus.REJECTED, AllocationReservationStatus.CANCELLED, AllocationReservationStatus.EXPIRED, AllocationReservationStatus.RELEASED} else None,
+        terminal_reason_code="test_terminal_state"
+        if status in {AllocationReservationStatus.REJECTED, AllocationReservationStatus.CANCELLED}
+        else None,
     )
     session.add(reservation)
     session.commit()

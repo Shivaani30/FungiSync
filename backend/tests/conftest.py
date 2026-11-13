@@ -2,8 +2,6 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.models  # noqa: F401
@@ -11,36 +9,55 @@ import app.models  # noqa: F401
 from app.main import app
 from app.db.base import Base
 from app.db.session import get_db
-from app.core.config import get_settings
-
-
-def _test_url() -> str:
-    value = get_settings().test_database_url
-    if not value:
-        raise RuntimeError("TEST_DATABASE_URL is required; tests never use DATABASE_URL.")
-    test_url = make_url(value)
-    development_url = make_url(get_settings().database_url)
-    if test_url.database != "fungisync_test_db" or test_url.database == development_url.database:
-        raise RuntimeError("TEST_DATABASE_URL must target fungisync_test_db, never the development database.")
-    return value
+from tests.db_safety import (
+    create_guarded_admin_engine,
+    create_guarded_runtime_engine,
+    load_test_target,
+    verify_admin_connection,
+    verify_runtime_connection,
+)
 
 
 @pytest.fixture(scope="session")
-def test_engine():
-    engine = create_engine(_test_url())
-    with engine.connect() as connection:
-        connection.execute(text("SELECT 1"))
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
-    yield engine
-    Base.metadata.drop_all(engine)
-    engine.dispose()
+def test_admin_engine():
+    target = load_test_target()
+    engine = create_guarded_admin_engine(target=target)
+    try:
+        with engine.connect() as connection:
+            verify_admin_connection(connection, target)
+        yield engine
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def test_engine(test_admin_engine):
+    target = load_test_target()
+    engine = create_guarded_runtime_engine(target=target)
+    try:
+        with engine.connect() as connection:
+            verify_runtime_connection(connection, target)
+        with test_admin_engine.begin() as connection:
+            verify_admin_connection(connection, target)
+            Base.metadata.drop_all(connection)
+            Base.metadata.create_all(connection)
+        with engine.connect() as connection:
+            verify_runtime_connection(connection, target)
+        yield engine
+    finally:
+        with test_admin_engine.begin() as connection:
+            verify_admin_connection(connection, target)
+            Base.metadata.drop_all(connection)
+        engine.dispose()
 
 
 @pytest.fixture(autouse=True)
-def database(test_engine) -> Generator[None, None, None]:
-    Base.metadata.drop_all(test_engine)
-    Base.metadata.create_all(test_engine)
+def database(test_engine, test_admin_engine) -> Generator[None, None, None]:
+    target = load_test_target()
+    with test_admin_engine.begin() as connection:
+        verify_admin_connection(connection, target)
+        Base.metadata.drop_all(connection)
+        Base.metadata.create_all(connection)
     yield
 
 

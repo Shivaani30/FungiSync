@@ -9,6 +9,8 @@ from app.api.routes.batches import router as batches_router
 from app.api.routes.buyers import router as buyers_router
 from app.api.routes.orders import router as orders_router
 from app.api.routes.matches import router as matches_router
+from app.api.routes.allocation_preview import router as allocation_preview_router
+from app.api.routes.harvest_coordination import router as harvest_coordination_router
 from app.core.config import get_settings
 
 
@@ -29,6 +31,8 @@ app.include_router(batches_router)
 app.include_router(buyers_router)
 app.include_router(orders_router)
 app.include_router(matches_router)
+app.include_router(allocation_preview_router)
+app.include_router(harvest_coordination_router)
 
 
 @app.exception_handler(IntegrityError)

@@ -5,6 +5,7 @@ from pydantic import Field, field_validator
 from typing import Annotated
 
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -20,10 +21,16 @@ class Settings(BaseSettings):
     )
 
     app_env: str = "development"
-    database_url: str
-    test_database_url: str | None = None
+    app_database_url: str
     backend_cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
     reservation_pending_ttl_seconds: Annotated[int, Field(gt=0)]
+
+    @field_validator("app_database_url")
+    @classmethod
+    def require_runtime_database_role(cls, value: str) -> str:
+        if make_url(value).username != "fungisync_app_runtime":
+            raise ValueError("APP_DATABASE_URL must use the restricted fungisync_app_runtime login")
+        return value
 
     @field_validator("backend_cors_origins", mode="before")
     @classmethod

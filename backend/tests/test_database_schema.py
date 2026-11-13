@@ -3,19 +3,15 @@ from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import create_engine, inspect
-from sqlalchemy.engine import make_url
+from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
-from app.core.config import get_settings
 from app.models import Batch, Buyer, Grower, Order
+from tests.db_safety import create_guarded_runtime_engine
 
 
-test_database_url = get_settings().test_database_url
-if not test_database_url or make_url(test_database_url).database != "fungisync_test_db":
-    raise RuntimeError("TEST_DATABASE_URL must target fungisync_test_db.")
-engine = create_engine(test_database_url)
+engine = create_guarded_runtime_engine()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 

@@ -7,7 +7,7 @@ from time import monotonic
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from tests.test_allocation_migrations import (
@@ -15,16 +15,18 @@ from tests.test_allocation_migrations import (
     _alembic,
     _test_database_url,
 )
+from tests.db_safety import create_guarded_admin_engine, load_test_target, verify_admin_connection
 
 
 @pytest.fixture
 def integrity_engine():
     url = _test_database_url()
-    admin = create_engine(url)
+    admin = create_guarded_admin_engine()
     with admin.begin() as connection:
+        verify_admin_connection(connection, load_test_target())
         connection.execute(text(f"DROP SCHEMA IF EXISTS {MIGRATION_TEST_SCHEMA} CASCADE"))
         connection.execute(text(f"CREATE SCHEMA {MIGRATION_TEST_SCHEMA}"))
-    engine = create_engine(url, connect_args={"options": f"-csearch_path={MIGRATION_TEST_SCHEMA}"})
+    engine = create_guarded_admin_engine(connect_args={"options": f"-csearch_path={MIGRATION_TEST_SCHEMA}"})
     try:
         _alembic(engine, "stamp", "base")
         _alembic(engine, "upgrade", "c3d3f1a9b742")
@@ -32,6 +34,7 @@ def integrity_engine():
     finally:
         engine.dispose()
         with admin.begin() as connection:
+            verify_admin_connection(connection, load_test_target())
             connection.execute(text(f"DROP SCHEMA IF EXISTS {MIGRATION_TEST_SCHEMA} CASCADE"))
         admin.dispose()
 

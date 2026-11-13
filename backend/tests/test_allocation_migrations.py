@@ -6,11 +6,11 @@ from time import monotonic
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
-from app.core.config import get_settings
+from tests.db_safety import create_guarded_admin_engine, load_test_target, verify_admin_connection
 
 
 BACKEND_DIR = __import__("pathlib").Path(__file__).resolve().parents[1]
@@ -20,18 +20,16 @@ MIGRATION_TEST_SCHEMA = "fungisync_migration_test"
 
 
 def _test_database_url() -> str:
-    url = get_settings().test_database_url
-    development_url = make_url(get_settings().database_url)
-    if not url or make_url(url).database != "fungisync_test_db" or make_url(url).database == development_url.database:
-        raise RuntimeError("Migration tests must use fungisync_test_db and must never target the development database.")
-    return url
+    load_test_target()
+    return os.environ["TEST_ADMIN_DATABASE_URL"]
 
 
 def _drop_migration_test_schema() -> None:
     """Remove all migration-test objects, including PostgreSQL native enums."""
-    engine = create_engine(_test_database_url())
+    engine = create_guarded_admin_engine()
     try:
         with engine.begin() as connection:
+            verify_admin_connection(connection, load_test_target())
             connection.execute(text(f"DROP SCHEMA IF EXISTS {MIGRATION_TEST_SCHEMA} CASCADE"))
     finally:
         engine.dispose()
@@ -49,8 +47,9 @@ def isolated_migration_schema() -> None:
 
 def _subprocess_environment() -> dict[str, str]:
     environment = os.environ.copy()
-    environment["DATABASE_URL"] = _test_database_url()
-    environment["TEST_DATABASE_URL"] = _test_database_url()
+    environment["MIGRATION_DATABASE_URL"] = _test_database_url()
+    environment.pop("DATABASE_URL", None)
+    environment.pop("TEST_DATABASE_URL", None)
     environment["FUNGISYNC_ALEMBIC_SCHEMA"] = MIGRATION_TEST_SCHEMA
     return environment
 
@@ -113,10 +112,10 @@ def _alembic(engine, *arguments: str) -> dict[str, object]:
 
 def _subprocess_catalog_context() -> tuple[str, str, str, int]:
     script = """
-from sqlalchemy import create_engine, text
-from app.core.config import get_settings
+from sqlalchemy import text
+from tests.db_safety import create_guarded_admin_engine
 schema = __import__('os').environ['FUNGISYNC_ALEMBIC_SCHEMA']
-with create_engine(get_settings().database_url, connect_args={'options': f'-csearch_path={schema}'}).connect() as connection:
+with create_guarded_admin_engine(connect_args={'options': f'-csearch_path={schema}'}).connect() as connection:
     row = connection.execute(text(\"\"\"
         SELECT current_database(), current_schema(), current_setting('search_path'),
                (SELECT count(*)
@@ -141,8 +140,8 @@ with create_engine(get_settings().database_url, connect_args={'options': f'-csea
 def test_allocation_migration_preserves_populated_current_schema() -> None:
     """Exercise upgrade/downgrade only against the explicitly protected test database."""
     test_url = _test_database_url()
-    admin_engine = create_engine(test_url)
-    engine = create_engine(test_url, connect_args={"options": f"-csearch_path={MIGRATION_TEST_SCHEMA}"})
+    admin_engine = create_guarded_admin_engine()
+    engine = create_guarded_admin_engine(connect_args={"options": f"-csearch_path={MIGRATION_TEST_SCHEMA}"})
     grower_id, buyer_id, batch_id, order_id = (uuid4() for _ in range(4))
 
     # Isolate the migration chain from metadata fixtures, which use public.
@@ -228,8 +227,8 @@ def test_allocation_migration_preserves_populated_current_schema() -> None:
 def test_reservation_migration_preserves_allocation_records_and_reverses_cleanly() -> None:
     """Exercise the reservation migration from the actual Phase 3.2.2 schema."""
     test_url = _test_database_url()
-    admin_engine = create_engine(test_url)
-    engine = create_engine(test_url, connect_args={"options": f"-csearch_path={MIGRATION_TEST_SCHEMA}"})
+    admin_engine = create_guarded_admin_engine()
+    engine = create_guarded_admin_engine(connect_args={"options": f"-csearch_path={MIGRATION_TEST_SCHEMA}"})
     grower_id, buyer_id, batch_id, order_id, alternate_batch_id, alternate_order_id, proposal_id, version_id, line_id, event_id, reservation_id, second_proposal_id, second_version_id, second_line_id, mismatch_reservation_id, update_first_line_id, reservation_first_line_id, update_first_reservation_id, reservation_first_reservation_id = (uuid4() for _ in range(19))
 
     with admin_engine.begin() as connection:
@@ -347,7 +346,7 @@ def test_reservation_migration_preserves_allocation_records_and_reverses_cleanly
             connection.execute(text("UPDATE allocation_reservations SET status = 'PENDING' WHERE id = :id"), {"id": reservation_id})
         transaction.rollback()
 
-    race_engine = create_engine(test_url, connect_args={"options": f"-csearch_path={MIGRATION_TEST_SCHEMA}"})
+    race_engine = create_guarded_admin_engine(connect_args={"options": f"-csearch_path={MIGRATION_TEST_SCHEMA}"})
 
     def _run_in_thread(statement: str, values: dict[str, object], errors: list[BaseException], ready: threading.Event, start: threading.Event, done: threading.Event, worker: dict[str, int]) -> None:
         try:

@@ -4,37 +4,41 @@ import { api, type Batch, type Buyer, type Grower, type Order } from '../../lib/
 export type OverviewData = { growers: Grower[]; batches: Batch[]; buyers: Buyer[]; orders: Order[] }
 export type OverviewResource = keyof OverviewData
 export type OverviewErrors = Partial<Record<OverviewResource, string>>
+export type OverviewLoading = Record<OverviewResource, boolean>
 
 const emptyData: OverviewData = { growers: [], batches: [], buyers: [], orders: [] }
+const initialLoading: OverviewLoading = { growers: true, batches: true, buyers: true, orders: true }
 const errorMessage = (reason: unknown) => reason instanceof Error ? reason.message : 'Request failed.'
 
 export function useOverviewData() {
   const [data, setData] = useState<OverviewData>(emptyData)
   const [errors, setErrors] = useState<OverviewErrors>({})
-  const [loading, setLoading] = useState(true)
+  const [loadingByResource, setLoadingByResource] = useState<OverviewLoading>(initialLoading)
   const requestVersion = useRef(0)
 
   const reload = useCallback(async () => {
     const version = ++requestVersion.current
-    setLoading(true)
-    const results = await Promise.allSettled([api.growers.list(), api.batches.list(), api.buyers.list(), api.orders.list()])
-    if (version !== requestVersion.current) return
+    setData(emptyData)
+    setErrors({})
+    setLoadingByResource(initialLoading)
 
-    const resources: OverviewResource[] = ['growers', 'batches', 'buyers', 'orders']
-    const nextData: OverviewData = { ...emptyData }
-    const nextErrors: OverviewErrors = {}
-    results.forEach((result, index) => {
-      const resource = resources[index]
-      if (result.status === 'fulfilled') {
-        if (resource === 'growers') nextData.growers = result.value as Grower[]
-        if (resource === 'batches') nextData.batches = result.value as Batch[]
-        if (resource === 'buyers') nextData.buyers = result.value as Buyer[]
-        if (resource === 'orders') nextData.orders = result.value as Order[]
-      } else nextErrors[resource] = errorMessage(result.reason)
-    })
-    setData(nextData)
-    setErrors(nextErrors)
-    setLoading(false)
+    const loadResource = <K extends OverviewResource>(resource: K, request: Promise<OverviewData[K]>) => request
+      .then(value => {
+        if (version === requestVersion.current) setData(current => ({ ...current, [resource]: value }))
+      })
+      .catch(reason => {
+        if (version === requestVersion.current) setErrors(current => ({ ...current, [resource]: errorMessage(reason) }))
+      })
+      .finally(() => {
+        if (version === requestVersion.current) setLoadingByResource(current => ({ ...current, [resource]: false }))
+      })
+
+    await Promise.all([
+      loadResource('growers', api.growers.list()),
+      loadResource('batches', api.batches.list()),
+      loadResource('buyers', api.buyers.list()),
+      loadResource('orders', api.orders.list()),
+    ])
   }, [])
 
   useEffect(() => {
@@ -42,5 +46,6 @@ export function useOverviewData() {
     return () => { requestVersion.current += 1 }
   }, [reload])
 
-  return { data, errors, loading, reload, allUnavailable: Object.keys(errors).length === 4 }
+  const loading = Object.values(loadingByResource).some(Boolean)
+  return { data, errors, loading, loadingByResource, reload, allUnavailable: Object.keys(errors).length === 4 }
 }

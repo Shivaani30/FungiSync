@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import event, func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.reservation_service as reservation_service
@@ -120,10 +121,10 @@ def _reservation(session: Session, batch: Batch, order: Order, quantity: Decimal
 def test_pending_ttl_setting_is_required_and_positive(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("RESERVATION_PENDING_TTL_SECONDS", raising=False)
     with pytest.raises(Exception, match="reservation_pending_ttl_seconds"):
-        Settings(_env_file=None, database_url="postgresql+psycopg://example/db")
+        Settings(_env_file=None, app_database_url="postgresql+psycopg://fungisync_app_runtime@example/db")
     with pytest.raises(Exception, match="greater than 0"):
-        Settings(_env_file=None, database_url="postgresql+psycopg://example/db", reservation_pending_ttl_seconds=0)
-    settings = Settings(_env_file=None, database_url="postgresql+psycopg://example/db", reservation_pending_ttl_seconds=3600)
+        Settings(_env_file=None, app_database_url="postgresql+psycopg://fungisync_app_runtime@example/db", reservation_pending_ttl_seconds=0)
+    settings = Settings(_env_file=None, app_database_url="postgresql+psycopg://fungisync_app_runtime@example/db", reservation_pending_ttl_seconds=3600)
     assert settings.reservation_pending_ttl_seconds == 3600
 
 
@@ -541,7 +542,18 @@ def test_missing_or_expired_proposal_expiry_rejects_approval(test_engine, propos
         proposal = session.get(AllocationProposal, proposal_id)
         assert proposal is not None
         proposal.expires_at = proposal_expiry
-        session.commit()
+        if proposal_expiry is None:
+            with pytest.raises(IntegrityError, match="ck_allocation_proposals_pending_timestamps"):
+                session.commit()
+            session.rollback()
+        else:
+            session.commit()
+    if proposal_expiry is None:
+        with Session(test_engine) as session:
+            stored = session.get(AllocationProposal, proposal_id)
+            assert stored is not None and stored.expires_at is not None
+            assert stored.status is AllocationProposalStatus.PENDING_APPROVAL
+        return
     with pytest.raises(ExpiredReservationError):
         approve_allocation_proposal(_factory(test_engine), proposal_id)
 
@@ -873,7 +885,22 @@ def test_expiry_rejects_inconsistent_reservations(test_engine, defect) -> None:
             proposal.expires_at = None
         else:
             reservation.reserved_quantity_kg += Decimal("1.000")
-        session.commit()
+        if defect == "missing_proposal_expiry":
+            with pytest.raises(IntegrityError, match="ck_allocation_proposals_pending_timestamps"):
+                session.commit()
+            session.rollback()
+        else:
+            session.commit()
+    if defect == "missing_proposal_expiry":
+        with Session(test_engine) as session:
+            stored = session.get(AllocationProposal, proposal_id)
+            assert stored is not None and stored.expires_at is not None
+            assert stored.status is AllocationProposalStatus.PENDING_APPROVAL
+            assert not tuple(session.scalars(select(AllocationEvent).where(
+                AllocationEvent.proposal_id == proposal_id,
+                AllocationEvent.event_type == "proposal_expired",
+            )))
+        return
     expected = MissingProposalReservationsError if defect == "missing" else InvalidReservationStateError if defect == "wrong_status" else InvalidReservationError
     with pytest.raises(expected):
         expire_pending_reservations(_factory(test_engine), proposal_id)

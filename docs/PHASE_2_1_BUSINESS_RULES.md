@@ -1,3 +1,4 @@
+
 # Phase 2.1 — Business Rules and Allocation Design
 
 > **Status:** Finalized design. Approved decisions in this document define the intended Phase 3 policy; they do not change the Phase 1 CRUD APIs, the Phase 2 matching engine, database schema, or frontend behavior.

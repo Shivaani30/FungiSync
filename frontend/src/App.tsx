@@ -7,22 +7,39 @@ import { GrowersPage } from './features/growers/GrowersPage'
 import { BatchesPage } from './features/batches/BatchesPage'
 import { BuyersPage } from './features/buyers/BuyersPage'
 import { OrdersPage } from './features/orders/OrdersPage'
+import { HarvestCoordinationPage } from './features/harvest/HarvestCoordinationPage'
+import { GuidedDemoPage } from './features/demo/GuidedDemoPage'
+import { DemoWorkspacePage } from './features/demo-workspace/DemoWorkspacePage'
 import { MatchingWorkspace } from './features/matching/MatchingWorkspace'
 
-type Page = 'dashboard' | 'growers' | 'batches' | 'buyers' | 'orders' | 'matching'
+type Page = 'overview' | 'guided-demo' | 'demo-workspace' | 'room' | 'energy' | 'growers-batches' | 'orders' | 'harvest' | 'history'
 const pages = [
-  { id: 'dashboard', label: 'Overview', icon: 'overview' },
-  { id: 'growers', label: 'Growers', icon: 'growers' },
-  { id: 'batches', label: 'Harvest batches', icon: 'batches' },
-  { id: 'buyers', label: 'Buyers', icon: 'buyers' },
+  { id: 'overview', label: 'Overview', icon: 'overview' },
+  { id: 'guided-demo', label: 'Guided Demo', icon: 'guide' },
+  { id: 'demo-workspace', label: 'Demo Workspace', icon: 'demo' },
+  { id: 'room', label: 'Grow Room', icon: 'room' },
+  { id: 'energy', label: 'Energy Intelligence', icon: 'energy' },
+  { id: 'growers-batches', label: 'Growers & Batches', icon: 'growers' },
   { id: 'orders', label: 'Orders', icon: 'orders' },
-  { id: 'matching', label: 'Matching', icon: 'matching' },
+  { id: 'harvest', label: 'Harvest Coordination', icon: 'harvest' },
+  { id: 'history', label: 'Allocation History', icon: 'history' },
 ] satisfies NavigationItem<Page>[]
 const label = (value: string) => value.replace('_', ' ').replace(/^./, x => x.toUpperCase())
 
 export default function App() {
-  const [page, setPage] = useState<Page>('dashboard')
-  return <AppShell items={pages} active={page} onNavigate={setPage}>{page === 'dashboard' ? <OverviewDashboard /> : page === 'growers' ? <GrowersPage /> : page === 'batches' ? <BatchesPage /> : page === 'buyers' ? <BuyersPage /> : page === 'orders' ? <OrdersPage /> : <MatchingWorkspace />}</AppShell>
+  const [page, setPage] = useState<Page>('overview')
+  const [guidedStep, setGuidedStep] = useState(0)
+  return <AppShell items={pages} active={page} onNavigate={setPage}>{page === 'overview' ? <OverviewDashboard onNavigate={setPage} /> : page === 'guided-demo' ? <GuidedDemoPage activeStep={guidedStep} onStepChange={setGuidedStep} onNavigate={destination => setPage(destination)} /> : page === 'demo-workspace' ? <DemoWorkspacePage /> : page === 'growers-batches' ? <><GrowersPage /><div className="section-divider"><BatchesPage /></div></> : page === 'orders' ? <><BuyersPage /><div className="section-divider"><OrdersPage /></div></> : page === 'harvest' ? <HarvestCoordinationPage /> : <ModulePreview page={page} />}</AppShell>
+}
+
+function ModulePreview({ page }: { page: Extract<Page, 'room' | 'energy' | 'history'> }) {
+  const content: Record<'room' | 'energy' | 'history', { eyebrow: string; title: string; description: string }> = {
+    room: { eyebrow: 'Grow room intelligence', title: 'Room monitoring preview', description: 'This area is reserved for clearly labelled simulated room readings, crop context and local response demonstrations.' },
+    energy: { eyebrow: 'Energy intelligence', title: 'Energy evidence preview', description: 'This area will show metered consumption alongside crop-condition context. No energy savings or live meter readings are presented here.' },
+    history: { eyebrow: 'Allocation history', title: 'Allocation records preview', description: 'Allocation history will appear here when the application API exposes those records.' },
+  }
+  const item = content[page]
+  return <section className="module-preview"><span className="eyebrow">{item.eyebrow}</span><h2>{item.title}</h2><p>{item.description}</p><span className="preview-label">WORKSPACE PREVIEW</span></section>
 }
 function Matching() {
   const [orders,setOrders] = useState<Order[]>([]); const [buyers,setBuyers] = useState<Buyer[]>([])

@@ -144,7 +144,7 @@ Never configure the test database to point to your development database.
 From the project root, copy the environment template:
 
 ```powershell
-Copy-Item .env.example .env
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
 Configure the database connection in the root `.env` file:
@@ -152,14 +152,12 @@ Configure the database connection in the root `.env` file:
 ```env
 APP_ENV=development
 
-DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5433/fungisync_db
-
-TEST_DATABASE_URL=postgresql+psycopg://postgres:<test-password>@localhost:5433/fungisync_test_db
+APP_DATABASE_URL=postgresql+psycopg://fungisync_app_runtime@<host>:<port>/<application-database>
 
 BACKEND_CORS_ORIGINS=http://localhost:5173
 ```
 
-Replace the placeholders with your local PostgreSQL credentials and actual port.
+Use the restricted runtime login for application requests. Supply credentials through a protected local passfile or secret manager. Alembic requires a separate `MIGRATION_DATABASE_URL` using the migration/admin login; do not put that credential in the application process. The isolated test setup and required test URLs are documented in [Phase 3.3.8.9 connection split](docs/PHASE_3_3_8_9_DATABASE_CONNECTION_SPLIT.md).
 
 ### Frontend
 
@@ -435,7 +433,7 @@ Use Alembic to manage database schema changes.
 
 ### Backend tests
 
-Configure `TEST_DATABASE_URL` in the root `.env` file before running tests.
+Configure `TEST_RUNTIME_DATABASE_URL`, `TEST_ADMIN_DATABASE_URL`, the isolated cluster identity, and the separate runtime/admin process URLs as described in [Phase 3.3.8.9 connection split](docs/PHASE_3_3_8_9_DATABASE_CONNECTION_SPLIT.md). The existing shared PostgreSQL cluster is not a safe test target.
 
 From the backend directory:
 
@@ -510,7 +508,7 @@ Consequential actions will require coordinator approval.
 | Issue                    | Suggested resolution                                                              |
 | ------------------------ | --------------------------------------------------------------------------------- |
 | Database unavailable     | Verify PostgreSQL is running, check the port and credentials, and test `/health`. |
-| Test database error      | Configure `TEST_DATABASE_URL` and ensure it points to `fungisync_test_db`.        |
+| Test database error      | Verify all isolated test URLs, roles, and the connected cluster identity in the Phase 3.3.8.9 guide. |
 | CORS error               | Set `BACKEND_CORS_ORIGINS` to the React development server origin.                |
 | Frontend API error       | Verify `VITE_API_BASE_URL` and restart Vite after changing `.env`.                |
 | Migration mismatch       | Run `alembic check` and `alembic upgrade head`.                                   |

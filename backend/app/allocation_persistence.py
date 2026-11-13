@@ -26,6 +26,7 @@ from app.models import (
     Batch,
     Order,
 )
+from app.reservation_transaction import lock_reservation_targets
 
 
 ZERO = Decimal("0")
@@ -130,6 +131,11 @@ def persist_advisory_draft(
     # A factory-owned session prevents a caller's autobegun transaction or pending
     # work from being committed along with this independently atomic operation.
     with session_factory.begin() as db:
+        # The draft version trigger locks its proposal. Acquire existing parent
+        # targets first so subsequent line inserts retain the global lock order.
+        lock_reservation_targets(
+            db, batch_ids=referenced_batch_ids, order_ids=(result.order_id,),
+        )
         order = db.get(Order, result.order_id)
         if order is None:
             raise ValueError("Referenced order does not exist")

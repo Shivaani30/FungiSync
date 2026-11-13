@@ -602,12 +602,22 @@ def approve_allocation_proposal(
         raise
 
 
+_TERMINAL_REASON_WHITESPACE = (
+    "\u0009\u000a\u000b\u000c\u000d\u001c\u001d\u001e\u001f\u0020"
+    "\u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006"
+    "\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+)
+
+
 def _terminal_reason(reason_code: str, reason: str | None) -> tuple[str, str | None]:
-    if not isinstance(reason_code, str) or not reason_code.strip() or len(reason_code) > 100:
+    # Use the same explicit character set as the model and migration checks.
+    # It preserves the Unicode whitespace behavior of Python's strip() today.
+    if not isinstance(reason_code, str) or not reason_code.strip(_TERMINAL_REASON_WHITESPACE) or len(reason_code) > 100:
         raise InvalidTerminalReasonError("reason_code must be a nonblank string of at most 100 characters")
-    if reason is not None and (not isinstance(reason, str) or not reason.strip()):
+    if reason is not None and (not isinstance(reason, str) or not reason.strip(_TERMINAL_REASON_WHITESPACE)):
         raise InvalidTerminalReasonError("reason must be a nonblank string when supplied")
-    return reason_code.strip(), reason.strip() if reason is not None else None
+    return (reason_code.strip(_TERMINAL_REASON_WHITESPACE),
+            reason.strip(_TERMINAL_REASON_WHITESPACE) if reason is not None else None)
 
 
 def _terminate_allocation_proposal(

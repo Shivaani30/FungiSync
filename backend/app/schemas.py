@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.models import BatchStatus, OrderStatus
@@ -124,3 +125,85 @@ class MatchResultsOut(BaseModel):
     target_id: UUID
     total_candidates: int
     candidates: list[MatchCandidateOut]
+
+
+class SimulatedCancellationOut(BaseModel):
+    buyer_label: Literal["Buyer B"]
+    quantity_kg: Decimal
+    event_type: Literal["simulated_order_cancellation"]
+    actual_order_mutated: Literal[False]
+    reservation_state_changed: Literal[False]
+
+
+class PreservedCommitmentOut(BaseModel):
+    buyer_label: Literal["Buyer A"]
+    quantity_kg: Decimal
+    unchanged_input_fact: Literal[True]
+
+
+class AlternateBuyerProposalOut(BaseModel):
+    buyer_label: Literal["Alternate buyer"]
+    quantity_kg: Decimal
+    status: Literal["PROPOSED"]
+
+
+class SyntheticHarvestReplanOut(BaseModel):
+    scenario_id: Literal["synthetic-cancellation-replan-60kg-v1"]
+    is_synthetic: Literal[True]
+    source_supply_kg: Decimal
+    simulated_cancellation: SimulatedCancellationOut
+    preserved_commitments: list[PreservedCommitmentOut]
+    alternate_proposal: AlternateBuyerProposalOut
+    unassigned_kg: Decimal
+    unassigned_basis: Literal["synthetic_reconciliation_remainder"]
+    reconciled_total_kg: Decimal
+    is_reconciled: Literal[True]
+    approval_status: Literal["PENDING"]
+    reservation_committed: Literal[False]
+    buyer_commitment_created: Literal[False]
+
+
+class AllocationPreviewExclusionOut(BaseModel):
+    code: str
+    message: str
+
+
+class AllocationPreviewLineOut(BaseModel):
+    batch_id: UUID
+    batch_confirmed_kg: Decimal | None
+    active_reserved_kg: Decimal = Field(ge=0)
+    remaining_before_preview_kg: Decimal | None
+    proposed_quantity_kg: Decimal = Field(ge=0)
+    remaining_after_preview_kg: Decimal | None
+
+
+class AllocationPreviewExcludedBatchOut(BaseModel):
+    batch_id: UUID
+    batch_confirmed_kg: Decimal | None
+    active_reserved_kg: Decimal = Field(ge=0)
+    remaining_before_preview_kg: Decimal | None
+    reasons: list[AllocationPreviewExclusionOut]
+
+
+class AllocationPreviewOut(BaseModel):
+    order_id: UUID
+    is_advisory: Literal[True]
+    is_synthetic: Literal[False]
+    persisted: Literal[False]
+    reservation_committed: Literal[False]
+    buyer_commitment_created: Literal[False]
+    quantity_basis: Literal[
+        "confirmed_batch_and_order_quantities_less_active_reservations"
+    ]
+    reservation_accounting_applied: Literal[True]
+    effective_at: datetime
+    total_requested_kg: Decimal = Field(ge=0)
+    active_reserved_order_kg: Decimal = Field(ge=0)
+    remaining_order_kg: Decimal = Field(ge=0)
+    total_allocated_kg: Decimal = Field(ge=0)
+    total_unfulfilled_kg: Decimal = Field(ge=0)
+    allocation_lines: list[AllocationPreviewLineOut]
+    excluded_batches: list[AllocationPreviewExcludedBatchOut]
+    order_exclusions: list[AllocationPreviewExclusionOut]
+    warnings: list[str]
+    is_reconciled: Literal[True]

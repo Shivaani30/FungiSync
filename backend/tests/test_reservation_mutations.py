@@ -78,6 +78,9 @@ def _seed(engine, statuses=(AllocationReservationStatus.PENDING,), *, expired=Fa
                     AllocationReservationStatus.REJECTED, AllocationReservationStatus.CANCELLED,
                     AllocationReservationStatus.EXPIRED, AllocationReservationStatus.RELEASED,
                 } else None,
+                terminal_reason_code="test_terminal_state"
+                if status in {AllocationReservationStatus.REJECTED, AllocationReservationStatus.CANCELLED}
+                else None,
             ))
         session.commit()
         return batch.id, order.id, proposal.id
